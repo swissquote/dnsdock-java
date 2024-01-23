@@ -4,8 +4,10 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
@@ -31,7 +33,7 @@ public class DockerHostsRegistry {
 		dockerClient = DockerClientBuilder.getInstance().build();
 		for (Container c : dockerClient.listContainersCmd().exec()) {
 			String containerName = c.getNames().length > 0 ? c.getNames()[0] : null;
-			addContainerToCache(c.getId(), containerName);
+			addContainerToCache(c.getId(), containerName, c.getImage());
 		}
 		dockerClient.eventsCmd().exec(new ResultCallback.Adapter<>() {
 			@Override
@@ -48,24 +50,35 @@ public class DockerHostsRegistry {
 						if (item.getActor().getAttributes() != null) {
 							containerName = item.getActor().getAttributes().get("name");
 						}
-						addContainerToCache(item.getId(), containerName);
+						addContainerToCache(item.getId(), containerName, item.getFrom());
 					}
 				}
 			}
 		});
 	}
 
+	private String normalizeImageName(String imageName) {
+		if (imageName.indexOf("/") != -1) {
+			imageName = imageName.substring(imageName.indexOf("/") + 1);
+		}
+		if (imageName.indexOf(":") != -1) {
+			imageName = imageName.substring(0, imageName.indexOf(":"));
+		}
+		return imageName;
+	}
+
 	private String normalizeContainerName(String containerName) {
 		return containerName.startsWith("/") ? containerName.substring(1) : containerName;
 	}
 
-	private void addContainerToCache(String containerId, String containerName) {
+	private void addContainerToCache(String containerId, String containerName, String imageName) {
 		InspectContainerResponse ic = dockerClient.inspectContainerCmd(containerId).exec();
 		ContainerAddresses containerAddresses = new ContainerAddresses();
+
 		for (ContainerNetwork cn : ic.getNetworkSettings().getNetworks().values()) {
 			try {
 				InetAddress ip = InetAddress.getByName(cn.getIpAddress());
-				List<String> alias = new ArrayList<>();
+				Set<String> alias = new HashSet<>();
 				if (cn.getAliases() != null) {
 					cn.getAliases().forEach(a -> alias.add(a.replace(DnsDockJava.DOCKER_DOMAIN, "")));
 				}
@@ -73,6 +86,8 @@ public class DockerHostsRegistry {
 					containerName = normalizeContainerName(containerName);
 					alias.add(containerName);
 				}
+
+				alias.add(normalizeImageName(imageName));
 				log.info("Adding container {}:{} ip {} for {}", containerId, containerName, ip, alias);
 				containerAddresses.ipPerHostnamesAliases.put(ip, alias);
 			}
@@ -95,7 +110,7 @@ public class DockerHostsRegistry {
 	}
 
 	private static class ContainerAddresses {
-		private final Map<InetAddress, List<String>> ipPerHostnamesAliases = new HashMap<>();
+		private final Map<InetAddress, Set<String>> ipPerHostnamesAliases = new HashMap<>();
 
 		InetAddress matches(String hostname) {
 			return ipPerHostnamesAliases.entrySet().stream()
