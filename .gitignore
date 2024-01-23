@@ -1,2 +1,4 @@
 /.idea/
 /dnssqdock-java.iml
+/target/
+/dependency-reduced-pom.xml

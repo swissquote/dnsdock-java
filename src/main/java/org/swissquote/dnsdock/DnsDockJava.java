@@ -39,7 +39,7 @@ import org.xbill.DNS.Zone;
 
 public class DnsDockJava {
 
-	private static final String DOCKER_DOMAIN = ".docker";
+	public static final String DOCKER_DOMAIN = ".docker";
 	private static final int FLAG_DNSSECOK = 1;
 	private static final int FLAG_SIGONLY = 2;
 	private static final Name DNSDOCK_JAVA = getName("dnsdock-java.");
@@ -316,7 +316,7 @@ public class DnsDockJava {
 	private Zone getZone(Name name) {
 		String hostname = name.toString(true);
 		if (hostname.endsWith(DOCKER_DOMAIN)) {
-			List<InetAddress> resolved = dockerHostsRegistry.resolve(hostname);
+			List<InetAddress> resolved = dockerHostsRegistry.resolve(hostname.replace(DOCKER_DOMAIN, ""));
 			if (!resolved.isEmpty()) {
 				LOG.debug("Hostname {} resolved to {}", hostname, resolved);
 				Collection<Record> records = resolved.stream().map(ip -> new ARecord(name, DClass.IN, 0, ip)).collect(Collectors.toList());

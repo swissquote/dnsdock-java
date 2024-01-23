@@ -4,6 +4,8 @@
 
 Dnsdock written in java with up to date docker client and improved container host names resolution
 
-to run simply call: 
+to run simply do: 
+
+mvn clean install
 
 /usr/bin/docker run -v /var/run/docker.sock:/var/run/docker.sock --name dnsdock -p 172.17.0.1:53:53/udp dnsdock-java:1.0.0-SNAPSHOT
