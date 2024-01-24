@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.async.ResultCallback;
 import com.github.dockerjava.api.command.InspectContainerResponse;
@@ -57,6 +58,12 @@ public class DockerHostsRegistry {
 		});
 	}
 
+	public Map<String, JsonContainerData> getJsonData() {
+		Map<String, JsonContainerData> json = new HashMap<>();
+		dockerContainers.forEach((k, v) -> json.put(k, v.getJsonContainerData()));
+		return json;
+	}
+
 	private String normalizeImageName(String imageName) {
 		if (imageName.indexOf("/") != -1) {
 			imageName = imageName.substring(imageName.indexOf("/") + 1);
@@ -73,8 +80,10 @@ public class DockerHostsRegistry {
 
 	private void addContainerToCache(String containerId, String containerName, String imageName) {
 		InspectContainerResponse ic = dockerClient.inspectContainerCmd(containerId).exec();
-		ContainerAddresses containerAddresses = new ContainerAddresses();
-
+		if (containerName != null) {
+			containerName = normalizeContainerName(containerName);
+		}
+		ContainerAddresses containerAddresses = new ContainerAddresses(containerName, imageName);
 		for (ContainerNetwork cn : ic.getNetworkSettings().getNetworks().values()) {
 			try {
 				InetAddress ip = InetAddress.getByName(cn.getIpAddress());
@@ -83,13 +92,11 @@ public class DockerHostsRegistry {
 					cn.getAliases().forEach(a -> alias.add(a.replace(DnsDockJava.DOCKER_DOMAIN, "")));
 				}
 				if (containerName != null) {
-					containerName = normalizeContainerName(containerName);
 					alias.add(containerName);
 				}
-
 				alias.add(normalizeImageName(imageName));
 				log.info("Adding container {}:{} ip {} for {}", containerId, containerName, ip, alias);
-				containerAddresses.ipPerHostnamesAliases.put(ip, alias);
+				alias.forEach(a -> containerAddresses.add(ip, a));
 			}
 			catch (UnknownHostException e) {
 				throw new IllegalStateException(e);
@@ -110,7 +117,31 @@ public class DockerHostsRegistry {
 	}
 
 	private static class ContainerAddresses {
+
 		private final Map<InetAddress, Set<String>> ipPerHostnamesAliases = new HashMap<>();
+
+		private JsonContainerData jsonContainerData;
+
+		public ContainerAddresses(String name, String imageName) {
+			jsonContainerData = new JsonContainerData();
+			jsonContainerData.image = imageName;
+			jsonContainerData.name = name;
+			jsonContainerData.ttl = -1;
+
+		}
+
+		public JsonContainerData getJsonContainerData() {
+			return jsonContainerData;
+		}
+
+		void add(InetAddress ip, String mapping) {
+			ipPerHostnamesAliases.computeIfAbsent(ip, i -> new HashSet<>()).add(mapping);
+			jsonContainerData.ips = ipPerHostnamesAliases.keySet();
+			Set<String> aliases = new HashSet<>();
+			ipPerHostnamesAliases.values()
+					.forEach(a -> a.forEach(a2 -> aliases.add(a2 + DnsDockJava.DOCKER_DOMAIN)));
+			jsonContainerData.aliases = aliases;
+		}
 
 		InetAddress matches(String hostname) {
 			return ipPerHostnamesAliases.entrySet().stream()
@@ -118,5 +149,20 @@ public class DockerHostsRegistry {
 					.map(Map.Entry::getKey).findFirst()
 					.orElse(null);
 		}
+	}
+
+	public static class JsonContainerData {
+
+		@JsonProperty("Name")
+		String name;
+		@JsonProperty("Image")
+		String image;
+		@JsonProperty("IPs")
+		Set<InetAddress> ips;
+		@JsonProperty("TTl")
+		int ttl;
+		@JsonProperty("Aliases")
+		Set<String> aliases;
+
 	}
 }

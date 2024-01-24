@@ -1,9 +1,11 @@
 package org.swissquote.dnsdock;
 
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -37,6 +39,9 @@ import org.xbill.DNS.TextParseException;
 import org.xbill.DNS.Type;
 import org.xbill.DNS.Zone;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+
 public class DnsDockJava {
 
 	public static final String DOCKER_DOMAIN = ".docker";
@@ -64,6 +69,28 @@ public class DnsDockJava {
 		}, "DNSDock-upd-server");
 		serverThread.setDaemon(false);
 		serverThread.start();
+
+		try {
+			HttpServer server = HttpServer.create(new InetSocketAddress(bindAddress, 80), 0);
+			server.createContext("/", httpExchange -> {
+				ObjectMapper mapper = new ObjectMapper();
+				String response = mapper.writeValueAsString(dnsDock.dockerHostsRegistry.getJsonData());
+				httpExchange.getResponseHeaders().add("Content-Type", "application/json");
+				httpExchange.sendResponseHeaders(200, response.getBytes().length);
+				try (OutputStream os = httpExchange.getResponseBody()) {
+					os.write(response.getBytes());
+					os.flush();
+				}
+			});
+			Thread t = new Thread(server::start);
+			t.setName("DNSDock-http-server");
+			t.setDaemon(true);
+			t.start();
+			LOG.info("DNSDock http server started on {}:{}", bindAddress, 80);
+		}
+		catch (IOException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	private static Name getName(String name) {
